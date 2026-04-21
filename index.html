@@ -837,6 +837,10 @@ body { font-family: var(--font); background: var(--color-background-tertiary, #f
         <div class="pay-method-icon">🏧</div>
         <div class="pay-method-label">Débito</div>
       </div>
+      <div class="pay-method" id="pm-balcao" onclick="selectPayment('balcao')">
+        <div class="pay-method-icon">🏪</div>
+        <div class="pay-method-label">Balcão</div>
+      </div>
     </div>
     <div id="pix-section">
       <div class="pix-box">
@@ -854,6 +858,13 @@ body { font-family: var(--font); background: var(--color-background-tertiary, #f
           <input class="card-input" placeholder="Validade (MM/AA)" maxlength="5">
           <input class="card-input" placeholder="CVV" maxlength="3" type="password">
         </div>
+      </div>
+    </div>
+    <div id="balcao-section" style="display:none">
+      <div style="background:#fff7ed;border:1.5px solid var(--primary);border-radius:12px;padding:16px;text-align:center;margin-bottom:4px">
+        <div style="font-size:32px;margin-bottom:8px">🏪</div>
+        <div style="font-size:14px;font-weight:700;color:#333;margin-bottom:4px">Pagamento no Balcão</div>
+        <div style="font-size:12px;color:#888">Finalize seu pedido agora e pague na hora da retirada no balcão.</div>
       </div>
     </div>
     <button class="btn-primary" onclick="finalizarPagamento()">✅ Confirmar pagamento</button>
@@ -1433,10 +1444,11 @@ function changeQty(id, d) {
 
 function selectPayment(m) {
   payMethod = m;
-  ['pix','credito','debito'].forEach(x => document.getElementById('pm-'+x).classList.remove('selected'));
+  ['pix','credito','debito','balcao'].forEach(x => document.getElementById('pm-'+x).classList.remove('selected'));
   document.getElementById('pm-'+m).classList.add('selected');
   document.getElementById('pix-section').style.display = m==='pix' ? 'block' : 'none';
-  document.getElementById('card-section').style.display = m!=='pix' ? 'block' : 'none';
+  document.getElementById('card-section').style.display = (m==='credito'||m==='debito') ? 'block' : 'none';
+  document.getElementById('balcao-section').style.display = m==='balcao' ? 'block' : 'none';
 }
 
 function copyPix() {
@@ -1448,6 +1460,38 @@ function copyPix() {
 function formatCard(el) {
   let v = el.value.replace(/\D/g,'').substring(0,16);
   el.value = v.replace(/(.{4})/g,'$1 ').trim();
+}
+
+function resetPedido() {
+  // Limpa carrinho
+  cart = [];
+  updateCartBar();
+
+  // Limpa observação
+  const obsEl = document.getElementById('obs-input');
+  if (obsEl) obsEl.value = '';
+
+  // Volta pagamento para Pix (padrão)
+  payMethod = 'pix';
+  ['pix','credito','debito','balcao'].forEach(x => {
+    const el = document.getElementById('pm-'+x);
+    if (el) el.classList.remove('selected');
+  });
+  const pmPix = document.getElementById('pm-pix');
+  if (pmPix) pmPix.classList.add('selected');
+  const pixSection = document.getElementById('pix-section');
+  if (pixSection) pixSection.style.display = 'block';
+  const cardSection = document.getElementById('card-section');
+  if (cardSection) cardSection.style.display = 'none';
+  const balcaoSection = document.getElementById('balcao-section');
+  if (balcaoSection) balcaoSection.style.display = 'none';
+
+  // Limpa busca
+  const searchEl = document.getElementById('search-input');
+  if (searchEl) searchEl.value = '';
+
+  // Rerenderiza produtos (remove qtds dos cards)
+  renderProducts();
 }
 
 async function finalizarPagamento() {
@@ -1484,9 +1528,9 @@ async function finalizarPagamento() {
   orders.push(order);
   orderCounter++;
 
-  // 3) Atualiza UI
+  // 3) Atualiza UI e reseta tudo para novo pedido
   document.getElementById('order-num-display').textContent = '#' + num;
-  cart = []; updateCartBar();
+  resetPedido();
   showScreen('sucesso');
   renderPanel();
   showToast('🔔 Novo pedido chegou no painel!');
@@ -1521,7 +1565,7 @@ function renderPanel() {
 }
 
 function orderCard(o) {
-  const payIcon = o.pay==='pix'?'🔑':o.pay==='credito'?'💳':'🏧';
+  const payIcon = o.pay==='pix'?'🔑':o.pay==='credito'?'💳':o.pay==='debito'?'🏧':'🏪';
   const itemsList = o.items.map(i => `${i.qty}x ${i.name}`).join(', ');
   let btn = '';
   if (o.status==='novo') btn = `<button class="action-btn btn-accept" onclick="moveOrder('${o.id}','prep')">🔥 Iniciar preparo</button><button class="print-btn" onclick="printOrder('${o.id}')">🖨️ Imprimir pedido</button>`;
@@ -1835,7 +1879,7 @@ function buildCupomHTML(order, storeName, footer) {
     const dots = '.'.repeat(Math.max(2, 28 - left.length - right.length));
     return `<div>${left}<span style="float:right">${right}</span></div>`;
   }).join('');
-  const payLabel = order.pay === 'pix' ? 'PIX' : order.pay === 'credito' ? 'CRÉDITO' : 'DÉBITO';
+  const payLabel = order.pay === 'pix' ? 'PIX' : order.pay === 'credito' ? 'CRÉDITO' : order.pay === 'debito' ? 'DÉBITO' : 'BALCÃO';
   return `
     <html><head><title>Pedido #${order.id}</title>
     <style>
@@ -2754,7 +2798,7 @@ function renderHistorico() {
 
   var statusLabel = { novo: '🆕 Novo', prep: '🔥 Preparo', pronto: '✅ Pronto', entregue: '🏁 Entregue' };
   var statusColor = { novo: 'background:#fef3c7;color:#92400e', prep: 'background:#dbeafe;color:#1e40af', pronto: 'background:#dcfce7;color:#166534', entregue: 'background:#f3f4f6;color:#6b7280' };
-  var payIcon = { pix: '🔑 Pix', credito: '💳 Crédito', debito: '🏧 Débito' };
+  var payIcon = { pix: '🔑 Pix', credito: '💳 Crédito', debito: '🏧 Débito', balcao: '🏪 Balcão' };
 
   container.innerHTML = '<div class="hist-day-title">📅 ' + (dataBr || inputVal) + ' — ' + doPedidos.length + ' pedido' + (doPedidos.length > 1 ? 's' : '') + '</div>' +
     doPedidos.map(function(o) {
@@ -3057,7 +3101,7 @@ function openViewOrder(id) {
   document.getElementById('vo-num').textContent = '#' + o.id;
   document.getElementById('vo-mesa').textContent = '📍 Mesa ' + (o.mesa || '?');
   document.getElementById('vo-time').textContent = '🕐 ' + (o.time || '--:--');
-  var payLabels = { pix: '🔑 Pix', credito: '💳 Crédito', debito: '🏧 Débito' };
+  var payLabels = { pix: '🔑 Pix', credito: '💳 Crédito', debito: '🏧 Débito', balcao: '🏪 Balcão' };
   document.getElementById('vo-pay').textContent = payLabels[o.pay] || o.pay || '';
   var dateEl = document.getElementById('vo-date');
   if (o.date) { dateEl.textContent = '📅 ' + o.date; dateEl.style.display = 'inline-block'; }
