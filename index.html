@@ -1450,8 +1450,13 @@ function formatCard(el) {
   el.value = v.replace(/(.{4})/g,'$1 ').trim();
 }
 
-function finalizarPagamento() {
+async function finalizarPagamento() {
   if (cart.length === 0) return;
+
+  // Bloqueia duplo clique
+  const btn = document.querySelector('[onclick="finalizarPagamento()"]');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Enviando...'; }
+
   const num = String(orderCounter).padStart(3,'0');
   const total = cart.reduce((a,i) => a + i.price*i.qty, 0);
   const obs = document.getElementById('obs-input').value;
@@ -1463,22 +1468,41 @@ function finalizarPagamento() {
     date: new Date().toLocaleDateString('pt-BR'),
     pay: payMethod
   };
+
+  // 1) Salva no Firebase ANTES de qualquer outra coisa
+  if (window.fbSaveOrder) {
+    try {
+      const fbId = await window.fbSaveOrder(order);
+      if (fbId) order._fbId = fbId;
+    } catch(e) {
+      console.warn('Erro ao salvar pedido:', e);
+      // Mesmo com erro, continua para não travar o cliente
+    }
+  }
+
+  // 2) Adiciona ao painel local e avança contador
   orders.push(order);
   orderCounter++;
-  // Salva pedido no Firebase
-  if (window.fbSaveOrder) {
-    window.fbSaveOrder(order).then(function(fbId) {
-      if (fbId) order._fbId = fbId;
-    });
-  }
+
+  // 3) Atualiza UI
   document.getElementById('order-num-display').textContent = '#' + num;
   cart = []; updateCartBar();
   showScreen('sucesso');
   renderPanel();
   showToast('🔔 Novo pedido chegou no painel!');
+
+  // 4) Impressão automática — sempre tenta, avisa se popup bloqueado
   if (autoPrint) {
-    setTimeout(() => printCupom(order), 400);
+    setTimeout(() => {
+      const w = printCupom(order);
+      if (w === false) {
+        showToast('⚠️ Permita pop-ups no navegador para imprimir!');
+      }
+    }, 500);
   }
+
+  // 5) Reabilita botão
+  if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar pagamento'; }
 }
 
 function novosPedido() { showScreen('cliente'); }
@@ -1781,7 +1805,7 @@ function showScreen(name) {
 }
 
 // ===== IMPRESSORA TÉRMICA =====
-let autoPrint = false;
+let autoPrint = true; // padrão: impressão automática ativada
 let paperWidth = '80';
 
 function saveAutoprint() {
@@ -1846,9 +1870,13 @@ function printCupom(order) {
   const storeName = document.getElementById('cfg-name').value || 'Lanche Express';
   const footer = document.getElementById('cfg-footer') ? document.getElementById('cfg-footer').value : 'Obrigado pela preferência! 😊';
   const w = window.open('', '_blank', `width=${paperWidth==='58'?220:300},height=500`);
-  if (!w) { showToast('⚠️ Permita pop-ups para imprimir!'); return; }
+  if (!w || w.closed || typeof w.document === 'undefined') {
+    showToast('⚠️ Permita pop-ups no navegador para imprimir!');
+    return false; // sinaliza falha ao chamador
+  }
   w.document.write(buildCupomHTML(order, storeName, footer));
   w.document.close();
+  return true;
 }
 
 function testPrint() {
